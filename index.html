@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>별의 연주시차 시뮬레이션 (거리 조절 기능 추가)</title>
+    <style>
+        body {
+            background-color: #111;
+            color: white;
+            font-family: 'Malgun Gothic', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 20px;
+        }
+        canvas {
+            background-color: #000;
+            border: 1px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+        }
+        .controls-wrapper {
+            margin-top: 15px;
+            width: 960px;
+            background: #222;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .control-row {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 15px;
+        }
+        
+        /* 버튼 스타일 */
+        .play-btn {
+            background-color: #00ffcc;
+            color: #111;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+            min-width: 110px;
+        }
+        .play-btn:hover {
+            background-color: #00ccaa;
+        }
+
+        /* 슬라이더 영역 스타일 */
+        .slider-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-grow: 1;
+        }
+        input[type=range] {
+            flex-grow: 1;
+            cursor: pointer;
+        }
+        .info {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #00ffcc;
+            min-width: 100px;
+            text-align: right;
+        }
+        .label-text {
+            min-width: 90px;
+        }
+        
+        /* 토글 스위치 CSS */
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+            border-left: 1px solid #555;
+            padding-left: 20px;
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 46px;
+            height: 24px;
+        }
+        .switch input { 
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider-toggle {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #555;
+            transition: .4s;
+            border-radius: 24px;
+        }
+        .slider-toggle:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider-toggle {
+            background-color: #00ffcc;
+        }
+        input:checked + .slider-toggle:before {
+            transform: translateX(22px);
+        }
+    </style>
+</head>
+<body>
+
+    <h2>별의 연주시차 시뮬레이션</h2>
+    <canvas id="simulationCanvas" width="960" height="540"></canvas>
+
+    <div class="controls-wrapper">
+        <!-- 첫 번째 줄: 재생 버튼과 지구 공전 슬라이더 -->
+        <div class="control-row">
+            <button id="playBtn" class="play-btn">▶ 자동 재생</button>
+            <div class="slider-group">
+                <span class="label-text">지구 궤도:</span>
+                <input type="range" id="monthSlider" min="1" max="25" value="1" step="0.01">
+                <span class="info" id="monthDisplay">1년차 1월</span>
+            </div>
+            <div class="toggle-container">
+                <span>지구 시점 보기</span>
+                <label class="switch">
+                    <input type="checkbox" id="viewToggle" checked>
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+        </div>
+        
+        <!-- 두 번째 줄: 별의 거리 조절 슬라이더 -->
+        <div class="control-row">
+            <div class="slider-group">
+                <span class="label-text">별의 거리:</span>
+                <!-- 최소 160(가까움)에서 최대 280(멂)까지 조절 -->
+                <input type="range" id="distanceSlider" min="160" max="280" value="200" step="1">
+                <span class="info" id="distanceDisplay">거리: 200</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d');
+        const slider = document.getElementById('monthSlider');
+        const display = document.getElementById('monthDisplay');
+        const distanceSlider = document.getElementById('distanceSlider');
+        const distanceDisplay = document.getElementById('distanceDisplay');
+        const toggle = document.getElementById('viewToggle');
+        const playBtn = document.getElementById('playBtn');
+
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2 + 80;  
+        const orbitRadius = 150;            
+        const bgY = 50;                     
+
+        let isPlaying = false;
+        let animationId;
+        const playSpeed = 0.05; 
+        let currentMonthNum = 1; 
+
+        function draw() {
+            let rawMonth = parseFloat(slider.value);
+            const isEarthViewOn = toggle.checked;
+            
+            // 별의 거리 동적 설정
+            const starDistance = parseFloat(distanceSlider.value);
+            const starY = cy - starDistance; 
+            distanceDisplay.innerText = `거리: ${starDistance}`;
+
+            // 날짜 텍스트 업데이트
+            if (rawMonth >= 25 && !isPlaying) {
+                display.innerText = "2년 주행 완료";
+            } else {
+                let calcMonth = rawMonth >= 25 ? 1 : rawMonth;
+                const year = Math.floor((calcMonth - 1) / 12) + 1;
+                const displayMonth = Math.floor((calcMonth - 1) % 12) + 1;
+                display.innerText = `${year}년차 ${displayMonth}월`;
+            }
+
+            // 화면 초기화
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. 배경 별 (스크린 선)
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, bgY);
+            ctx.lineTo(canvas.width, bgY);
+            ctx.stroke();
+            
+            ctx.fillStyle = '#fff';
+            ctx.font = '14px Arial';
+            ctx.fillText("멀리 있는 배경 별 (Screen)", 15, bgY - 12);
+
+            // 2. 지구 공전 궤도
+            ctx.strokeStyle = '#888';
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.arc(cx, cy, orbitRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // 3. 태양
+            ctx.fillStyle = '#ffcc00'; 
+            ctx.beginPath();
+            ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 4. 관측할 별 (동적 Y좌표 적용)
+            ctx.fillStyle = 'orange';
+            ctx.beginPath();
+            ctx.arc(cx, starY, 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.fillText("관측 대상 별", cx + 15, starY + 5);
+
+            // 5. 지구 위치
+            const angle = ((rawMonth - 1) / 12) * Math.PI * 2 + (Math.PI / 2); 
+            const earthX = cx + orbitRadius * Math.cos(angle);
+            const earthY = cy - orbitRadius * Math.sin(angle);
+
+            ctx.fillStyle = '#3498db';
+            ctx.beginPath();
+            ctx.arc(earthX, earthY, 12, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 6. 시선 방향 투영
+            let projectionX = cx;
+            if (earthX !== cx) {
+                const slope = (starY - earthY) / (cx - earthX);
+                projectionX = (bgY - starY) / slope + cx;
+            }
+
+            ctx.strokeStyle = '#00ffcc';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(earthX, earthY);
+            ctx.lineTo(projectionX, bgY);
+            ctx.stroke();
+
+            ctx.fillStyle = '#00ffcc';
+            ctx.beginPath();
+            ctx.arc(projectionX, bgY, 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            const parallaxOffset = (projectionX - cx).toFixed(1);
+            ctx.fillStyle = '#00ffcc';
+            ctx.font = '16px Arial';
+            ctx.fillText(`배경 상의 겉보기 위치: ${parallaxOffset}`, cx - 90, bgY - 20);
+
+            // 7. 지구 시점 (망원경)
+            if (isEarthViewOn) {
+                const evW = 260;
+                const evH = 160;
+                const evX = canvas.width - evW - 20; 
+                const evY = canvas.height - evH - 20; 
+
+                ctx.fillStyle = '#0f0f0f';
+                ctx.fillRect(evX, evY, evW, evH);
+                ctx.strokeStyle = '#00ffcc';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(evX, evY, evW, evH);
+
+                ctx.fillStyle = '#00ffcc';
+                ctx.font = 'bold 14px Arial';
+                ctx.fillText("🔭 망원경 (지구 시점)", evX + 15, evY + 25);
+
+                ctx.fillStyle = '#888';
+                const bgStars = [
+                    {x: 40, y: 70, r: 1.5}, {x: 190, y: 100, r: 2}, 
+                    {x: 120, y: 50, r: 1}, {x: 220, y: 130, r: 1.5},
+                    {x: 70, y: 120, r: 2}, {x: 150, y: 140, r: 1}
+                ];
+                bgStars.forEach(star => {
+                    ctx.beginPath();
+                    ctx.arc(evX + star.x, evY + star.y, star.r, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(evX + evW / 2, evY + 35); 
+                ctx.lineTo(evX + evW / 2, evY + evH);
+                ctx.moveTo(evX, evY + evH / 2 + 10);
+                ctx.lineTo(evX + evW, evY + evH / 2 + 10);
+                ctx.stroke();
+
+                // 거리에 반비례하여 망원경 내에서의 흔들림(스케일) 보정
+                const moveScale = 0.8; 
+                const starPosX = evX + (evW / 2) + (parseFloat(parallaxOffset) * moveScale);
+                const starPosY = evY + (evH / 2) + 10;
+
+                ctx.fillStyle = 'orange';
+                ctx.beginPath();
+                ctx.arc(starPosX, starPosY, 8, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function animate() {
+            if (!isPlaying) return; 
+            
+            currentMonthNum += playSpeed; 
+            
+            if (currentMonthNum >= 25) {
+                currentMonthNum = 1;
+            }
+            
+            slider.value = currentMonthNum;
+            draw();
+            
+            animationId = requestAnimationFrame(animate);
+        }
+
+        playBtn.addEventListener('click', () => {
+            isPlaying = !isPlaying;
+            if (isPlaying) {
+                playBtn.innerText = "⏸ 일시 정지";
+                playBtn.style.backgroundColor = "#ffcc00"; 
+                currentMonthNum = parseFloat(slider.value); 
+                animate(); 
+            } else {
+                playBtn.innerText = "▶ 자동 재생";
+                playBtn.style.backgroundColor = "#00ffcc";
+                cancelAnimationFrame(animationId); 
+            }
+        });
+
+        slider.addEventListener('input', () => {
+            currentMonthNum = parseFloat(slider.value);
+            draw();
+        });
+
+        // 별의 거리 슬라이더 조작 시 다시 그리기
+        distanceSlider.addEventListener('input', draw);
+        toggle.addEventListener('change', draw);
+
+        draw(); 
+    </script>
+</body>
+</html>
